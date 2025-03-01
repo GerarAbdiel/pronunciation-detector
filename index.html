@@ -93,19 +93,27 @@
         <div id="youtube-result"></div>
     </div>
 
-    <script src="pocketsphinx.js"></script>
-    <script>
+    <script src="https://gerarabdiel.github.io/pronunciation-detector/pocketsphinx.js"></script>
+    <script type="module">
         const wordInput = document.getElementById('wordInput');
         const resultDiv = document.getElementById('result');
         const youtubeDiv = document.getElementById('youtube-result');
 
-        // Cargar cmudict.json
+        // Cargar cmudict.json desde GitHub Pages
         async function loadCMUDict() {
             try {
-                const response = await fetch('cmudict.json');
-                return await response.json();
+                const response = await fetch('https://gerarabdiel.github.io/pronunciation-detector/cmudict.json');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                const text = await response.text();
+                if (!text) {
+                    throw new Error('Archivo cmudict.json está vacío');
+                }
+                return JSON.parse(text);
             } catch (error) {
                 console.error('Error al cargar cmudict.json:', error);
+                resultDiv.innerHTML = "Error al cargar el diccionario fonético: " + error.message;
                 return {};
             }
         }
@@ -114,13 +122,41 @@
         loadCMUDict().then(dict => {
             cmuDict = dict;
             resultDiv.innerHTML = "¡Listo para grabar! 🎙️";
-        }).catch(error => {
-            resultDiv.innerHTML = "Error al cargar el diccionario fonético: " + error.message;
         });
 
         function normalizeText(text) {
             return text ? text.trim().toLowerCase().replace(/\s+/g, ' ') : 'nada';
         }
+
+        // AudioWorklet para procesar audio con PocketSphinx
+        class PocketSphinxProcessor extends AudioWorkletProcessor {
+            constructor() {
+                super();
+                this.recognizer = new pocketsphinx.Recognizer(new pocketsphinx.Config());
+                this.recognizer.start();
+            }
+
+            process(inputs) {
+                const input = inputs[0];
+                const channelData = input[0];
+                if (channelData) {
+                    const int16Data = new Int16Array(channelData.length);
+                    for (let i = 0; i < channelData.length; i++) {
+                        int16Data[i] = Math.max(-32768, Math.min(32767, channelData[i] * 32768));
+                    }
+                    this.recognizer.process(int16Data);
+                }
+                return true;
+            }
+
+            stop() {
+                this.recognizer.stop();
+                const hypothesis = this.recognizer.getHyp();
+                this.port.postMessage({ hypothesis: hypothesis ? hypothesis.hypstr : '' });
+            }
+        }
+
+        registerProcessor('pocketsphinx-processor', PocketSphinxProcessor);
 
         async function startRecording() {
             const targetWord = normalizeText(wordInput.value);
@@ -146,33 +182,47 @@
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000 } });
                 const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                 const source = audioContext.createMediaStreamSource(stream);
-                const processor = audioContext.createScriptProcessor(4096, 1, 1);
 
-                // Configurar PocketSphinx
-                const config = new pocketsphinx.Config();
-                config.setString('-logfn', '/dev/null'); // Silenciar logs
-                const recognizer = new pocketsphinx.Recognizer(config);
-                recognizer.start();
+                await audioContext.audioWorklet.addModule(URL.createObjectURL(new Blob([`
+                    class PocketSphinxProcessor extends AudioWorkletProcessor {
+                        constructor() {
+                            super();
+                            this.recognizer = new pocketsphinx.Recognizer(new pocketsphinx.Config());
+                            this.recognizer.start();
+                            this.port.onmessage = (event) => {
+                                if (event.data === 'stop') {
+                                    this.recognizer.stop();
+                                    const hypothesis = this.recognizer.getHyp();
+                                    this.port.postMessage({ hypothesis: hypothesis ? hypothesis.hypstr : '' });
+                                }
+                            };
+                        }
 
-                processor.onaudioprocess = (event) => {
-                    const inputBuffer = event.inputBuffer.getChannelData(0);
-                    const int16Data = new Int16Array(inputBuffer.length);
-                    for (let i = 0; i < inputBuffer.length; i++) {
-                        int16Data[i] = Math.max(-32768, Math.min(32767, inputBuffer[i] * 32768));
+                        process(inputs) {
+                            const input = inputs[0];
+                            const channelData = input[0];
+                            if (channelData) {
+                                const int16Data = new Int16Array(channelData.length);
+                                for (let i = 0; i < channelData.length; i++) {
+                                    int16Data[i] = Math.max(-32768, Math.min(32767, channelData[i] * 32768));
+                                }
+                                this.recognizer.process(int16Data);
+                            }
+                            return true;
+                        }
                     }
-                    recognizer.process(int16Data);
-                };
 
-                source.connect(processor);
-                processor.connect(audioContext.destination);
+                    registerProcessor('pocketsphinx-processor', PocketSphinxProcessor);
+                `], { type: 'application/javascript' })));
 
-                setTimeout(() => {
-                    recognizer.stop();
-                    const hypothesis = recognizer.getHyp();
-                    const spokenWord = normalizeText(hypothesis ? hypothesis.hypstr : '');
+                const pocketSphinxNode = new AudioWorkletNode(audioContext, 'pocketsphinx-processor');
+                source.connect(pocketSphinxNode);
+                pocketSphinxNode.connect(audioContext.destination);
+
+                pocketSphinxNode.port.onmessage = (event) => {
+                    const spokenWord = normalizeText(event.data.hypothesis);
                     const spokenPhoneme = cmuDict[spokenWord] ? cmuDict[spokenWord].phonemes : spokenWord;
 
-                    // Validación estricta de fonemas
                     const expectedPhonemes = cmuDict[targetWord].phonemes.split(' ');
                     const spokenPhonemes = cmuDict[spokenWord] ? cmuDict[spokenWord].phonemes.split(' ') : spokenWord.split('');
                     let phonemeMatch = true;
@@ -215,7 +265,11 @@
 
                     stream.getTracks().forEach(track => track.stop());
                     audioContext.close();
-                }, 5000); // 5 segundos de grabación
+                };
+
+                setTimeout(() => {
+                    pocketSphinxNode.port.postMessage('stop');
+                }, 5000);
             } catch (error) {
                 resultDiv.innerHTML = "Error al iniciar PocketSphinx: " + error.message;
                 console.error(error);
