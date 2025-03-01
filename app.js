@@ -48,15 +48,15 @@ recordButton.addEventListener('click', async () => {
 
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000 } });
-        mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+        mediaRecorder = new MediaRecorder(stream);
         audioChunks = [];
 
         mediaRecorder.ondataavailable = event => audioChunks.push(event.data);
 
         mediaRecorder.onstop = async () => {
             stream.getTracks().forEach(track => track.stop());
-            const audioBlob = new Blob(audioChunks, { type: 'audio/webm;codecs=opus' });
-            const audioBase64 = await convertAudioToBase64(audioBlob);
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            const audioBase64 = await convertWebMToLinear16(audioBlob); // Convertir a LINEAR16
             const transcription = await transcribeAudio(audioBase64);
             processTranscription(transcription, targetWord);
         };
@@ -68,16 +68,27 @@ recordButton.addEventListener('click', async () => {
     }
 });
 
-// Convertir audio a base64
-async function convertAudioToBase64(audioBlob) {
+// Convertir WebM a LINEAR16 Base64
+async function convertWebMToLinear16(audioBlob) {
     return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            const base64 = reader.result.split(',')[1];
-            if (!base64) throw new Error('No se generó Base64 válido');
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        const fileReader = new FileReader();
+
+        fileReader.onload = async () => {
+            const arrayBuffer = fileReader.result;
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+            const channelData = audioBuffer.getChannelData(0); // Mono
+            const int16Array = new Int16Array(channelData.length);
+
+            for (let i = 0; i < channelData.length; i++) {
+                int16Array[i] = Math.max(-32768, Math.min(32767, Math.round(channelData[i] * 32768)));
+            }
+
+            const base64 = btoa(String.fromCharCode(...new Uint8Array(int16Array.buffer)));
             resolve(base64);
         };
-        reader.readAsDataURL(audioBlob);
+
+        fileReader.readAsArrayBuffer(audioBlob);
     });
 }
 
@@ -85,12 +96,12 @@ async function convertAudioToBase64(audioBlob) {
 async function transcribeAudio(audioBase64) {
     const request = {
         config: {
-            encoding: 'OGG_OPUS', // Cambiado a OGG_OPUS para mayor compatibilidad
+            encoding: 'LINEAR16', // Usamos LINEAR16
             sampleRateHertz: 16000,
             languageCode: 'en-US',
             enableAutomaticPunctuation: false,
             enableWordTimeOffsets: false,
-            model: 'default', // Cambiado a 'default' para transcripción más literal
+            model: 'default',
             maxAlternatives: 5
         },
         audio: { content: audioBase64 }
