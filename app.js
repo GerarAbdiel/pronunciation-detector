@@ -48,7 +48,7 @@ recordButton.addEventListener('click', async () => {
 
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000 } });
-        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
         audioChunks = [];
 
         mediaRecorder.ondataavailable = event => audioChunks.push(event.data);
@@ -56,7 +56,7 @@ recordButton.addEventListener('click', async () => {
         mediaRecorder.onstop = async () => {
             stream.getTracks().forEach(track => track.stop());
             const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-            const audioBase64 = await convertWebMToLinear16(audioBlob); // Convertir a LINEAR16
+            const audioBase64 = await convertWebMToLinear16(audioBlob);
             const transcription = await transcribeAudio(audioBase64);
             processTranscription(transcription, targetWord);
         };
@@ -70,22 +70,27 @@ recordButton.addEventListener('click', async () => {
 
 // Convertir WebM a LINEAR16 Base64
 async function convertWebMToLinear16(audioBlob) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
         const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
         const fileReader = new FileReader();
 
         fileReader.onload = async () => {
-            const arrayBuffer = fileReader.result;
-            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-            const channelData = audioBuffer.getChannelData(0); // Mono
-            const int16Array = new Int16Array(channelData.length);
+            try {
+                const arrayBuffer = fileReader.result;
+                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                const channelData = audioBuffer.getChannelData(0); // Mono
+                const int16Array = new Int16Array(channelData.length);
 
-            for (let i = 0; i < channelData.length; i++) {
-                int16Array[i] = Math.max(-32768, Math.min(32767, Math.round(channelData[i] * 32768)));
+                for (let i = 0; i < channelData.length; i++) {
+                    int16Array[i] = Math.max(-32768, Math.min(32767, Math.round(channelData[i] * 32768)));
+                }
+
+                const base64 = btoa(String.fromCharCode(...new Uint8Array(int16Array.buffer)));
+                if (!base64) throw new Error('Base64 vacío');
+                resolve(base64);
+            } catch (error) {
+                reject(new Error('Error al convertir audio: ' + error.message));
             }
-
-            const base64 = btoa(String.fromCharCode(...new Uint8Array(int16Array.buffer)));
-            resolve(base64);
         };
 
         fileReader.readAsArrayBuffer(audioBlob);
@@ -96,7 +101,7 @@ async function convertWebMToLinear16(audioBlob) {
 async function transcribeAudio(audioBase64) {
     const request = {
         config: {
-            encoding: 'LINEAR16', // Usamos LINEAR16
+            encoding: 'LINEAR16',
             sampleRateHertz: 16000,
             languageCode: 'en-US',
             enableAutomaticPunctuation: false,
