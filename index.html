@@ -128,36 +128,6 @@
             return text ? text.trim().toLowerCase().replace(/\s+/g, ' ') : 'nada';
         }
 
-        // AudioWorklet para procesar audio con PocketSphinx
-        class PocketSphinxProcessor extends AudioWorkletProcessor {
-            constructor() {
-                super();
-                this.recognizer = new pocketsphinx.Recognizer(new pocketsphinx.Config());
-                this.recognizer.start();
-            }
-
-            process(inputs) {
-                const input = inputs[0];
-                const channelData = input[0];
-                if (channelData) {
-                    const int16Data = new Int16Array(channelData.length);
-                    for (let i = 0; i < channelData.length; i++) {
-                        int16Data[i] = Math.max(-32768, Math.min(32767, channelData[i] * 32768));
-                    }
-                    this.recognizer.process(int16Data);
-                }
-                return true;
-            }
-
-            stop() {
-                this.recognizer.stop();
-                const hypothesis = this.recognizer.getHyp();
-                this.port.postMessage({ hypothesis: hypothesis ? hypothesis.hypstr : '' });
-            }
-        }
-
-        registerProcessor('pocketsphinx-processor', PocketSphinxProcessor);
-
         async function startRecording() {
             const targetWord = normalizeText(wordInput.value);
             if (!targetWord) {
@@ -183,6 +153,7 @@
                 const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                 const source = audioContext.createMediaStreamSource(stream);
 
+                // Usar AudioWorkletNode en lugar de ScriptProcessorNode
                 await audioContext.audioWorklet.addModule(URL.createObjectURL(new Blob([`
                     class PocketSphinxProcessor extends AudioWorkletProcessor {
                         constructor() {
