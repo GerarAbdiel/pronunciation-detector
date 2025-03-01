@@ -2,7 +2,7 @@ const wordInput = document.getElementById('wordInput');
 const resultDiv = document.getElementById('result');
 const youtubeDiv = document.getElementById('youtube-result');
 const recordButton = document.getElementById('recordButton');
-const API_KEY = 'TU_CLAVE_API'; // Reemplaza con tu clave API de Google Speech-to-Text
+const API_KEY = 'AIzaSyBkbRzGGcr7HxwH8rYHXHc4_SAO_0yGl9k'; // Reemplaza con tu clave API de Google Speech-to-Text
 
 let mediaRecorder;
 let audioChunks = [];
