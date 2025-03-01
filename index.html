@@ -4,146 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Detector Fonético de Pronunciación</title>
-    <style>
-        /* Tus estilos aquí, si los tienes */
-    </style>
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <div class="container">
-        <h1>🎙️ Detector Fonético de Pronunciación</h1>
-        <input type="text" id="wordInput" placeholder="Ingresa una palabra en inglés">
-        <button id="recordButton" onclick="startRecording()">Grabar Pronunciación</button>
+        <h1>🎙️ Detector de Pronunciación</h1>
+        <input type="text" id="wordInput" placeholder="Escribe una palabra en inglés">
+        <button id="recordButton">Grabar</button>
         <div id="result"></div>
         <div id="youtube-result"></div>
     </div>
-
-    <script src="https://gerarabdiel.github.io/pronunciation-detector/pocketsphinx.js"></script>
-    <script type="module">
-        const wordInput = document.getElementById('wordInput');
-        const resultDiv = document.getElementById('result');
-        const youtubeDiv = document.getElementById('youtube-result');
-
-        // Cargar el diccionario fonético
-        async function loadCMUDict() {
-            try {
-                const response = await fetch('https://gerarabdiel.github.io/pronunciation-detector/cmudict.json');
-                if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
-                const text = await response.text();
-                if (!text) throw new Error('Archivo cmudict.json vacío');
-                return JSON.parse(text);
-            } catch (error) {
-                resultDiv.innerHTML = "Error al cargar el diccionario: " + error.message;
-                return {};
-            }
-        }
-
-        let cmuDict = null;
-        loadCMUDict().then(dict => {
-            cmuDict = dict;
-            resultDiv.innerHTML = "¡Listo para grabar! 🎙️";
-        });
-
-        function normalizeText(text) {
-            return text ? text.trim().toLowerCase().replace(/\s+/g, ' ') : 'nada';
-        }
-
-        // Función para iniciar la grabación
-        async function startRecording() {
-            const targetWord = normalizeText(wordInput.value);
-            if (!targetWord) {
-                resultDiv.innerHTML = "Por favor, ingresa una palabra.";
-                return;
-            }
-            if (!cmuDict) {
-                resultDiv.innerHTML = "Esperando carga del diccionario...";
-                return;
-            }
-            if (!cmuDict[targetWord]) {
-                resultDiv.innerHTML = `Error: "${targetWord}" no está en el diccionario fonético.`;
-                return;
-            }
-
-            resultDiv.innerHTML = "Grabando... 🎙️";
-            resultDiv.className = '';
-
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000 } });
-                const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-                const source = audioContext.createMediaStreamSource(stream);
-
-                const audioWorkletModule = URL.createObjectURL(new Blob([`
-                    importScripts('https://gerarabdiel.github.io/pronunciation-detector/pocketsphinx.js');
-
-                    class PocketSphinxProcessor extends AudioWorkletProcessor {
-                        constructor() {
-                            super();
-                            this.recognizer = new pocketsphinx.Recognizer(new pocketsphinx.Config());
-                            this.recognizer.start();
-                            this.port.onmessage = (event) => {
-                                if (event.data === 'stop') {
-                                    this.recognizer.stop();
-                                    const hypothesis = this.recognizer.getHyp();
-                                    this.port.postMessage({ hypothesis: hypothesis ? hypothesis.hypstr : '' });
-                                }
-                            };
-                        }
-
-                        process(inputs) {
-                            const input = inputs[0];
-                            const channelData = input[0];
-                            if (channelData) {
-                                const int16Data = new Int16Array(channelData.length);
-                                for (let i = 0; i < channelData.length; i++) {
-                                    int16Data[i] = Math.max(-32768, Math.min(32767, channelData[i] * 32768));
-                                }
-                                this.recognizer.process(int16Data);
-                            }
-                            return true;
-                        }
-                    }
-
-                    registerProcessor('pocketsphinx-processor', PocketSphinxProcessor);
-                `], { type: 'application/javascript' }));
-
-                await audioContext.audioWorklet.addModule(audioWorkletModule);
-
-                const pocketSphinxNode = new AudioWorkletNode(audioContext, 'pocketsphinx-processor');
-                source.connect(pocketSphinxNode);
-                pocketSphinxNode.connect(audioContext.destination);
-
-                pocketSphinxNode.port.onmessage = (event) => {
-                    const spokenWord = normalizeText(event.data.hypothesis);
-                    const expectedPhonemes = cmuDict[targetWord].phonemes;
-
-                    resultDiv.innerHTML = `Esperado: "${targetWord}" (fonemas: ${expectedPhonemes})<br>`;
-                    resultDiv.innerHTML += `Detectado: "${spokenWord}"`;
-
-                    if (!spokenWord || spokenWord === 'nada') {
-                        resultDiv.innerHTML += "<br>❌ No se detectó voz.";
-                        resultDiv.className = "incorrect";
-                    } else if (spokenWord === targetWord) {
-                        resultDiv.innerHTML += "<br>✅ ¡Correcto! La pronunciación coincide.";
-                        resultDiv.className = "correct";
-                    } else {
-                        resultDiv.innerHTML += `<br>❌ Incorrecto. Dijiste "${spokenWord}" en lugar de "${targetWord}".`;
-                        resultDiv.className = "incorrect";
-                    }
-
-                    stream.getTracks().forEach(track => track.stop());
-                    audioContext.close();
-                };
-
-                setTimeout(() => {
-                    pocketSphinxNode.port.postMessage('stop');
-                }, 5000);
-            } catch (error) {
-                resultDiv.innerHTML = "Error al iniciar la grabación: " + error.message;
-                console.error(error);
-            }
-        }
-
-        // Hacer que startRecording sea accesible globalmente
-        window.startRecording = startRecording;
-    </script>
+    <script src="app.js"></script>
 </body>
 </html>
