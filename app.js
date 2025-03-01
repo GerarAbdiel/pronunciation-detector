@@ -136,19 +136,20 @@ async function transcribeAudio(audioBase64) {
 // Procesar transcripción y comparar fonemas
 function processTranscription(alternatives, targetWord) {
     const spokenWord = alternatives.length > 0 ? normalizeText(alternatives[0].transcript) : 'nada';
-    const expectedPhonemes = cmuDict[targetWord];
-    let detectedPhonemes = spokenWord in cmuDict ? cmuDict[spokenWord] : spokenWord;
+    const expectedEntry = cmuDict[targetWord];
+    const detectedEntry = spokenWord in cmuDict ? cmuDict[spokenWord] : { phonemes: spokenWord, spanish: spokenWord };
 
-    resultDiv.innerHTML = `Esperado: "${targetWord}" (fonemas: ${expectedPhonemes})<br>Detectado: "${spokenWord}" (fonemas: ${detectedPhonemes})`;
+    resultDiv.innerHTML = `Esperado: "${targetWord}" (fonemas: ${expectedEntry.phonemes}, español: ${expectedEntry.spanish})<br>`;
+    resultDiv.innerHTML += `Detectado: "${spokenWord}" (fonemas: ${detectedEntry.phonemes}, español: ${detectedEntry.spanish})`;
 
     if (spokenWord === 'nada') {
         resultDiv.innerHTML += "<br>❌ No se detectó voz.";
         resultDiv.className = 'incorrect';
-    } else if (expectedPhonemes === detectedPhonemes) {
+    } else if (expectedEntry.phonemes === detectedEntry.phonemes) {
         resultDiv.innerHTML += "<br>✅ ¡Correcto!";
         resultDiv.className = 'correct';
     } else {
-        resultDiv.innerHTML += `<br>❌ Incorrecto. Fonemas detectados: ${detectedPhonemes}`;
+        resultDiv.innerHTML += `<br>❌ Incorrecto. Fonemas detectados: ${detectedEntry.phonemes}`;
         resultDiv.className = 'incorrect';
     }
 
