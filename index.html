@@ -5,14 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Detector Fonético de Pronunciación</title>
     <style>
-        /* Estilos omitidos por brevedad, mantenlos como estaban */
+        /* Tus estilos aquí, si los tienes */
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🎙️ Detector Fonético de Pronunciación</h1>
         <input type="text" id="wordInput" placeholder="Ingresa una palabra en inglés">
-        <button onclick="startRecording()">Grabar Pronunciación</button>
+        <button id="recordButton" onclick="startRecording()">Grabar Pronunciación</button>
         <div id="result"></div>
         <div id="youtube-result"></div>
     </div>
@@ -47,6 +47,7 @@
             return text ? text.trim().toLowerCase().replace(/\s+/g, ' ') : 'nada';
         }
 
+        // Función para iniciar la grabación
         async function startRecording() {
             const targetWord = normalizeText(wordInput.value);
             if (!targetWord) {
@@ -70,7 +71,6 @@
                 const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                 const source = audioContext.createMediaStreamSource(stream);
 
-                // Definir el módulo de AudioWorklet
                 const audioWorkletModule = URL.createObjectURL(new Blob([`
                     importScripts('https://gerarabdiel.github.io/pronunciation-detector/pocketsphinx.js');
 
@@ -141,6 +141,9 @@
                 console.error(error);
             }
         }
+
+        // Hacer que startRecording sea accesible globalmente
+        window.startRecording = startRecording;
     </script>
 </body>
 </html>
