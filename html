@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detector Fonético de Pronunciación</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #e0f7fa, #b2ebf2);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+            max-width: 600px;
+            width: 100%;
+            text-align: center;
+        }
+        h1 {
+            color: #0288d1;
+            font-size: 32px;
+            margin-bottom: 20px;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
+        }
+        input[type="text"] {
+            padding: 12px;
+            font-size: 16px;
+            border: 2px solid #0288d1;
+            border-radius: 8px;
+            width: 70%;
+            max-width: 300px;
+            margin-right: 10px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        input[type="text"]:focus {
+            border-color: #01579b;
+        }
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            background-color: #0288d1;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.2s;
+        }
+        button:hover {
+            background-color: #01579b;
+            transform: scale(1.05);
+        }
+        #result, #youtube-result {
+            margin-top: 20px;
+            font-size: 18px;
+            padding: 15px;
+            background: #f5f5f5;
+            border-radius: 8px;
+            color: #333;
+        }
+        #result.correct {
+            background: #c8e6c9;
+            color: #2e7d32;
+        }
+        #result.incorrect {
+            background: #ffcdd2;
+            color: #c62828;
+        }
+        a {
+            color: #0288d1;
+            font-weight: bold;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎙️ Detector Fonético de Pronunciación</h1>
+        <input type="text" id="wordInput" placeholder="Ingresa una palabra en inglés">
+        <button onclick="startRecording()">Grabar Pronunciación</button>
+        <div id="result"></div>
+        <div id="youtube-result"></div>
+    </div>
+
+    <script src="pocketsphinx.js"></script>
+    <script>
+        const wordInput = document.getElementById('wordInput');
+        const resultDiv = document.getElementById('result');
+        const youtubeDiv = document.getElementById('youtube-result');
+
+        // Cargar cmudict.json
+        async function loadCMUDict() {
+            try {
+                const response = await fetch('cmudict.json');
+                return await response.json();
+            } catch (error) {
+                console.error('Error al cargar cmudict.json:', error);
+                return {};
+            }
+        }
+
+        let cmuDict = null;
+        loadCMUDict().then(dict => {
+            cmuDict = dict;
+            resultDiv.innerHTML = "¡Listo para grabar! 🎙️";
+        }).catch(error => {
+            resultDiv.innerHTML = "Error al cargar el diccionario fonético: " + error.message;
+        });
+
+        function normalizeText(text) {
+            return text ? text.trim().toLowerCase().replace(/\s+/g, ' ') : 'nada';
+        }
+
+        async function startRecording() {
+            const targetWord = normalizeText(wordInput.value);
+            if (!targetWord) {
+                resultDiv.innerHTML = "Por favor, ingresa una palabra.";
+                return;
+            }
+
+            if (!cmuDict) {
+                resultDiv.innerHTML = "Esperando carga del diccionario...";
+                return;
+            }
+
+            if (!cmuDict[targetWord]) {
+                resultDiv.innerHTML = `Error: "${targetWord}" no está en el diccionario fonético.`;
+                return;
+            }
+
+            resultDiv.innerHTML = "Grabando... 🎙️";
+            resultDiv.className = '';
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000 } });
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+                const source = audioContext.createMediaStreamSource(stream);
+                const processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+                // Configurar PocketSphinx
+                const config = new pocketsphinx.Config();
+                config.setString('-logfn', '/dev/null'); // Silenciar logs
+                const recognizer = new pocketsphinx.Recognizer(config);
+                recognizer.start();
+
+                processor.onaudioprocess = (event) => {
+                    const inputBuffer = event.inputBuffer.getChannelData(0);
+                    const int16Data = new Int16Array(inputBuffer.length);
+                    for (let i = 0; i < inputBuffer.length; i++) {
+                        int16Data[i] = Math.max(-32768, Math.min(32767, inputBuffer[i] * 32768));
+                    }
+                    recognizer.process(int16Data);
+                };
+
+                source.connect(processor);
+                processor.connect(audioContext.destination);
+
+                setTimeout(() => {
+                    recognizer.stop();
+                    const hypothesis = recognizer.getHyp();
+                    const spokenWord = normalizeText(hypothesis ? hypothesis.hypstr : '');
+                    const spokenPhoneme = cmuDict[spokenWord] ? cmuDict[spokenWord].phonemes : spokenWord;
+
+                    // Validación estricta de fonemas
+                    const expectedPhonemes = cmuDict[targetWord].phonemes.split(' ');
+                    const spokenPhonemes = cmuDict[spokenWord] ? cmuDict[spokenWord].phonemes.split(' ') : spokenWord.split('');
+                    let phonemeMatch = true;
+                    let errorDetails = '';
+
+                    if (spokenPhonemes.length !== expectedPhonemes.length) {
+                        phonemeMatch = false;
+                        errorDetails = ` (error en número de fonemas: esperado ${expectedPhonemes.length}, detectado ${spokenPhonemes.length})`;
+                    } else {
+                        for (let i = 0; i < expectedPhonemes.length; i++) {
+                            if (spokenPhonemes[i] !== expectedPhonemes[i]) {
+                                phonemeMatch = false;
+                                errorDetails = ` (error en fonema ${i + 1}: esperado ${expectedPhonemes[i]}, detectado ${spokenPhonemes[i]})`;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!phonemeMatch) {
+                        spokenWord += errorDetails;
+                    }
+
+                    const expectedEntry = cmuDict[targetWord];
+                    const spokenEntry = cmuDict[spokenWord] || { phonemes: spokenPhoneme, spanish: spokenWord };
+
+                    resultDiv.innerHTML = `Esperado: "${targetWord}" (fonemas: ${expectedEntry.phonemes}, en español: ${expectedEntry.spanish})<br>`;
+                    resultDiv.innerHTML += `Detectado: "${spokenWord}" (fonemas: ${spokenEntry.phonemes}, en español: ${spokenEntry.spanish})`;
+
+                    if (!spokenWord || spokenWord === 'nada') {
+                        resultDiv.innerHTML += "<br>❌ No se detectó voz.";
+                        resultDiv.className = "incorrect";
+                    } else if (spokenEntry.phonemes === expectedEntry.phonemes) {
+                        resultDiv.innerHTML += "<br>✅ ¡Correcto! La pronunciación coincide fonéticamente.";
+                        resultDiv.className = "correct";
+                    } else {
+                        resultDiv.innerHTML += `<br>❌ Incorrecto. Dijiste "${spokenWord}" (fonemas: ${spokenEntry.phonemes}) y se esperaba "${targetWord}" (fonemas: ${expectedEntry.phonemes}).`;
+                        resultDiv.className = "incorrect";
+                    }
+                    showYouTubeLink(targetWord);
+
+                    stream.getTracks().forEach(track => track.stop());
+                    audioContext.close();
+                }, 5000); // 5 segundos de grabación
+            } catch (error) {
+                resultDiv.innerHTML = "Error al iniciar PocketSphinx: " + error.message;
+                console.error(error);
+            }
+        }
+
+        function showYouTubeLink(word) {
+            const searchQuery = encodeURIComponent(`${word} pronunciation`);
+            youtubeDiv.innerHTML = `
+                <p>📺 Escucha la pronunciación correcta:</p>
+                <a href="https://www.youtube.com/results?search_query=${searchQuery}" target="_blank">
+                    Buscar "${word} pronunciation" en YouTube
+                </a>
+            `;
+        }
+    </script>
+</body>
+</html>
