@@ -2,10 +2,25 @@ const wordInput = document.getElementById('wordInput');
 const resultDiv = document.getElementById('result');
 const youtubeDiv = document.getElementById('youtube-result');
 const recordButton = document.getElementById('recordButton');
-const API_KEY = 'AIzaSyBkbRzGGcr7HxwH8rYHXHc4_SAO_0yGl9k'; // Reemplaza con tu clave API de Google
+const API_KEY = 'TU_CLAVE_API'; // Reemplaza con tu clave API de Google Speech-to-Text
 
 let mediaRecorder;
 let audioChunks = [];
+let cmuDict = null;
+
+// Cargar cmudict.json al iniciar
+async function loadCMUDict() {
+    try {
+        const response = await fetch('cmudict.json'); // Ajusta la ruta si es necesario
+        if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
+        cmuDict = await response.json();
+        resultDiv.innerHTML = "¡Listo para grabar! 🎙️";
+    } catch (error) {
+        resultDiv.innerHTML = "Error al cargar el diccionario: " + error.message;
+    }
+}
+
+loadCMUDict();
 
 // Normalizar texto
 function normalizeText(text) {
@@ -17,6 +32,14 @@ recordButton.addEventListener('click', async () => {
     const targetWord = normalizeText(wordInput.value);
     if (!targetWord || targetWord === 'nada') {
         resultDiv.innerHTML = "Por favor, escribe una palabra.";
+        return;
+    }
+    if (!cmuDict) {
+        resultDiv.innerHTML = "Esperando carga del diccionario...";
+        return;
+    }
+    if (!cmuDict[targetWord]) {
+        resultDiv.innerHTML = `Error: "${targetWord}" no está en el diccionario fonético.`;
         return;
     }
 
@@ -39,7 +62,7 @@ recordButton.addEventListener('click', async () => {
         };
 
         mediaRecorder.start();
-        setTimeout(() => mediaRecorder.stop(), 3000); // Grabar 3 segundos
+        setTimeout(() => mediaRecorder.stop(), 3000); // Grabar por 3 segundos
     } catch (error) {
         resultDiv.innerHTML = "Error al usar el micrófono: " + error.message;
     }
@@ -54,15 +77,15 @@ async function convertAudioToBase64(audioBlob) {
     });
 }
 
-// Transcribir audio
+// Transcribir audio con la API de Google
 async function transcribeAudio(audioBase64) {
     const request = {
         config: {
             encoding: 'WEBM_OPUS',
             sampleRateHertz: 16000,
             languageCode: 'en-US',
-            enableAutomaticPunctuation: false, // Sin correcciones automáticas
-            model: 'command_and_search', // Transcripción literal
+            enableAutomaticPunctuation: false,
+            model: 'command_and_search',
             maxAlternatives: 5
         },
         audio: { content: audioBase64 }
@@ -83,17 +106,19 @@ async function transcribeAudio(audioBase64) {
     }
 }
 
-// Procesar transcripción
+// Procesar transcripción y comparar fonemas
 function processTranscription(alternatives, targetWord) {
     const spokenWord = alternatives.length > 0 ? normalizeText(alternatives[0].transcript) : 'nada';
-    const isCorrect = spokenWord === targetWord;
+    const expectedPhonemes = cmuDict[targetWord];
+    let detectedPhonemes = spokenWord in cmuDict ? cmuDict[spokenWord] : spokenWord;
 
-    resultDiv.innerHTML = `Esperado: "${targetWord}"<br>Detectado: "${spokenWord}"`;
-    if (isCorrect) {
+    resultDiv.innerHTML = `Esperado: "${targetWord}" (fonemas: ${expectedPhonemes})<br>Detectado: "${spokenWord}" (fonemas: ${detectedPhonemes})`;
+
+    if (expectedPhonemes === detectedPhonemes) {
         resultDiv.innerHTML += "<br>✅ ¡Correcto!";
         resultDiv.className = 'correct';
     } else {
-        resultDiv.innerHTML += `<br>❌ Incorrecto. Dijiste "${spokenWord}".`;
+        resultDiv.innerHTML += `<br>❌ Incorrecto. Fonemas detectados: ${detectedPhonemes}`;
         resultDiv.className = 'incorrect';
     }
 
