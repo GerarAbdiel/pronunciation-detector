@@ -2,7 +2,7 @@ const wordInput = document.getElementById('wordInput');
 const resultDiv = document.getElementById('result');
 const youtubeDiv = document.getElementById('youtube-result');
 const recordButton = document.getElementById('recordButton');
-const API_KEY = 'AIzaSyBkbRzGGcr7HxwH8rYHXHc4_SAO_0yGl9k'; // Reemplaza con tu clave API de Google Speech-to-Text
+const API_KEY = 'AIzaSyBkbRzGGcr7HxwH8rYHXHc4_SAO_0yGl9k'; // Tu clave API
 
 let mediaRecorder;
 let audioChunks = [];
@@ -11,7 +11,7 @@ let cmuDict = null;
 // Cargar cmudict.json al iniciar
 async function loadCMUDict() {
     try {
-        const response = await fetch('cmudict.json'); // Ajusta la ruta si es necesario
+        const response = await fetch('https://gerarabdiel.github.io/pronunciation-detector/cmudict.json');
         if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
         cmuDict = await response.json();
         resultDiv.innerHTML = "¡Listo para grabar! 🎙️";
@@ -48,21 +48,21 @@ recordButton.addEventListener('click', async () => {
 
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000 } });
-        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
         audioChunks = [];
 
         mediaRecorder.ondataavailable = event => audioChunks.push(event.data);
 
         mediaRecorder.onstop = async () => {
             stream.getTracks().forEach(track => track.stop());
-            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm;codecs=opus' });
             const audioBase64 = await convertAudioToBase64(audioBlob);
             const transcription = await transcribeAudio(audioBase64);
             processTranscription(transcription, targetWord);
         };
 
         mediaRecorder.start();
-        setTimeout(() => mediaRecorder.stop(), 3000); // Grabar por 3 segundos
+        setTimeout(() => mediaRecorder.stop(), 3000);
     } catch (error) {
         resultDiv.innerHTML = "Error al usar el micrófono: " + error.message;
     }
@@ -72,20 +72,25 @@ recordButton.addEventListener('click', async () => {
 async function convertAudioToBase64(audioBlob) {
     return new Promise((resolve) => {
         const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result.split(',')[1]);
+        reader.onloadend = () => {
+            const base64 = reader.result.split(',')[1];
+            if (!base64) throw new Error('No se generó Base64 válido');
+            resolve(base64);
+        };
         reader.readAsDataURL(audioBlob);
     });
 }
 
-// Transcribir audio con la API de Google
+// Transcribir audio con Google Speech-to-Text
 async function transcribeAudio(audioBase64) {
     const request = {
         config: {
-            encoding: 'WEBM_OPUS',
+            encoding: 'OGG_OPUS', // Cambiado a OGG_OPUS para mayor compatibilidad
             sampleRateHertz: 16000,
             languageCode: 'en-US',
             enableAutomaticPunctuation: false,
-            model: 'command_and_search',
+            enableWordTimeOffsets: false,
+            model: 'default', // Cambiado a 'default' para transcripción más literal
             maxAlternatives: 5
         },
         audio: { content: audioBase64 }
@@ -98,10 +103,16 @@ async function transcribeAudio(audioBase64) {
             body: JSON.stringify(request)
         });
 
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(`Error ${response.status}: ${JSON.stringify(errorData)}`);
+        }
+
         const data = await response.json();
         return data.results ? data.results[0].alternatives : [];
     } catch (error) {
         resultDiv.innerHTML = "Error en la API: " + error.message;
+        console.error('Detalles del error:', error.message);
         return [];
     }
 }
@@ -114,7 +125,10 @@ function processTranscription(alternatives, targetWord) {
 
     resultDiv.innerHTML = `Esperado: "${targetWord}" (fonemas: ${expectedPhonemes})<br>Detectado: "${spokenWord}" (fonemas: ${detectedPhonemes})`;
 
-    if (expectedPhonemes === detectedPhonemes) {
+    if (spokenWord === 'nada') {
+        resultDiv.innerHTML += "<br>❌ No se detectó voz.";
+        resultDiv.className = 'incorrect';
+    } else if (expectedPhonemes === detectedPhonemes) {
         resultDiv.innerHTML += "<br>✅ ¡Correcto!";
         resultDiv.className = 'correct';
     } else {
