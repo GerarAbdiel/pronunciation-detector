@@ -1,0 +1,15 @@
+import json
+
+cmu_dict = {}
+with open('cmudict.dict', 'r') as f:
+    for line in f:
+        if not line.startswith(';;;'):
+            parts = line.strip().split()
+            word = parts[0]
+            phonemes = ' '.join(parts[1:])
+            # Aproximación simple en español (puedes mejorar esta lógica)
+            spanish = word  # Aquí podrías usar una tabla de conversión fonética si deseas
+            cmu_dict[word] = {"phonemes": phonemes, "spanish": spanish}
+
+with open('cmudict.json', 'w') as json_file:
+    json.dump(cmu_dict, json_file)
